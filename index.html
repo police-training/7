@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>警务实战训练 · 昵称版（修复）</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root { --deep-blue: #0a3142; --navy: #0b3b5e; --gold: #f59e0b; }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #dce3ea; display:flex; justify-content:center; align-items:center; min-height:100vh; padding:10px; }
+        .app-shell { width:100%; max-width:540px; height:94vh; max-height:920px; background:white; border-radius:32px; box-shadow:0 30px 70px rgba(0,0,0,0.18); overflow:hidden; display:flex; flex-direction:column; position:relative; }
+        .view { display:none; flex-direction:column; height:100%; overflow-y:auto; }
+        .view.active { display:flex; }
+        .name-view { background: linear-gradient(160deg, #0a3142 0%, #0f4a6b 50%, #0b3b5e 100%); color:white; align-items:center; justify-content:center; padding:20px; gap:15px; text-align:center; }
+        .name-view h2 { font-size:1.5rem; }
+        .name-view input, .name-view button { width:85%; padding:12px; border-radius:25px; border:none; font-size:1rem; margin:5px 0; }
+        .name-view input { background:rgba(255,255,255,0.2); color:white; text-align:center; }
+        .name-view button { background:white; color:var(--deep-blue); font-weight:bold; }
+        .cover-view { background: linear-gradient(160deg, #0a3142 0%, #0f4a6b 50%, #0b3b5e 100%); color:white; padding:15px; }
+        .user-bar { display:flex; justify-content:space-between; align-items:center; padding:8px 0; flex-wrap:wrap; }
+        .scene-grid { display:flex; flex-direction:column; gap:10px; margin-top:10px; }
+        .scene-card { background:rgba(255,255,255,0.1); border-radius:15px; padding:12px; display:flex; align-items:center; gap:10px; cursor:pointer; }
+        .train-view { background:#fff; flex:1; }
+        .train-header { background:var(--navy); color:white; padding:10px; display:flex; align-items:center; gap:10px; }
+        .chat-area { flex:1; overflow-y:auto; padding:10px; background:#f9fafb; }
+        .message { max-width:85%; margin:5px 0; padding:8px 12px; border-radius:15px; }
+        .ai { align-self:flex-start; background:#fff; border:1px solid #e2e8f0; }
+        .user { align-self:flex-end; background:#0b3b5e; color:white; }
+        .input-area { display:flex; gap:8px; padding:10px; background:#fff; border-top:1px solid #ddd; }
+        .input-area input { flex:1; border-radius:20px; padding:10px; border:1px solid #ccc; }
+        .btn-round { width:40px; height:40px; border-radius:50%; border:none; background:#0b3b5e; color:white; cursor:pointer; }
+        .score-panel { position:absolute; bottom:0; left:0; right:0; background:white; border-radius:20px 20px 0 0; padding:20px; transform:translateY(100%); transition:0.3s; box-shadow:0 -5px 20px rgba(0,0,0,0.2); z-index:10; }
+        .score-panel.show { transform:translateY(0); }
+        .btn { padding:10px 20px; border-radius:20px; border:none; background:var(--navy); color:white; cursor:pointer; margin:4px; }
+        .equip-item, .shop-item { display:flex; align-items:center; margin:8px 0; }
+        .modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:100; justify-content:center; align-items:center; }
+        .modal-content { background:white; padding:20px; border-radius:20px; width:90%; max-width:400px; max-height:80vh; overflow-y:auto; }
+        .tone-tag { font-size:0.7rem; padding:2px 8px; border-radius:10px; display:inline-block; margin-left:5px; }
+        .calm { background:#d1fae5; color:#065f46; }
+        .harsh { background:#fee2e2; color:#991b1b; }
+    </style>
+</head>
+<body>
+<div class="app-shell" id="appShell">
+    <div class="view name-view active" id="authView">
+        <h2>🚔 警务实战训练</h2>
+        <input type="text" id="nicknameInput" placeholder="设置昵称（用于显示）">
+        <input type="email" id="emailInput" placeholder="邮箱">
+        <input type="password" id="passwordInput" placeholder="密码（至少6位）">
+        <button id="loginBtn">登录</button>
+        <button id="registerBtn">注册新警员</button>
+        <p id="authError" style="color:#ffcccb;"></p>
+        <button id="adminBtn" style="display:none; background:rgba(255,255,255,0.3);">🔍 管理面板</button>
+    </div>
+
+    <div class="view cover-view" id="coverView">
+        <div class="user-bar">
+            <span>👤 <b id="displayNickname"></b></span>
+            <span>⭐Lv.<span id="displayLevel">1</span> | 💰<span id="displayCoins">0</span> | ⚡<span id="displayEnergy">10</span></span>
+        </div>
+        <div style="margin:10px 0; display:flex; gap:5px; flex-wrap:wrap;">
+            <button class="btn" id="equipMenuBtn">🎒装备</button>
+            <button class="btn" id="shopBtn">🛒商店</button>
+            <button class="btn" id="teamBtn">🤝组队</button>
+            <button class="btn" id="historyBtn">📋战绩</button>
+            <button class="btn" id="adminCoverBtn" style="display:none; background:#e94560;">🔍管理</button>
+            <button class="btn" id="logoutBtn" style="background:#555;">🚪退出</button>
+        </div>
+        <div class="scene-grid" id="sceneGrid"></div>
+        <div style="margin-top:15px; background:rgba(255,255,255,0.1); border-radius:15px; padding:10px;">
+            <p>🏅 称号：<span id="displayTitle">见习警员</span></p>
+            <p>🏆 成就数：<span id="displayAchieve">0</span>/10</p>
+        </div>
+    </div>
+
+    <div class="view train-view" id="trainView">
+        <div class="train-header"><button class="back-btn" id="backBtn">←</button><h2 id="trainTitle">场景训练</h2></div>
+        <div class="chat-area" id="chatArea"></div>
+        <div class="input-area">
+            <button class="btn-round" id="voiceBtn">🎤</button>
+            <input type="text" id="userInput" placeholder="输入回答或语音...">
+            <button class="btn-round" id="sendBtn">➤</button>
+        </div>
+        <div class="score-panel" id="scorePanel"></div>
+    </div>
+
+    <!-- 弹窗（保留所有弹窗） -->
+    <div class="modal" id="equipModal"><div class="modal-content"><h3>🎒 装备仓库</h3><p>携带上限：<span id="maxCarry">3</span>件</p><div id="equipList"></div><button class="btn" id="confirmEquip">确认携带</button></div></div>
+    <div class="modal" id="shopModal"><div class="modal-content"><h3>🛒 道具商店</h3><div id="shopList"></div></div></div>
+    <div class="modal" id="teamModal"><div class="modal-content"><h3>🤝 多人协同</h3><button class="btn" id="createRoomBtn">创建房间</button><p id="roomCodeDisplay" style="margin:10px 0;font-weight:bold;"></p><input type="text" id="joinRoomInput" placeholder="输入房间码加入"><button class="btn" id="joinRoomBtn">加入房间</button><div id="roomMembers" style="margin-top:10px;"></div></div></div>
+    <div class="modal" id="historyModal"><div class="modal-content"><h3>📋 训练历史</h3><div id="historyList"></div></div></div>
+    <div class="modal" id="adminModal"><div class="modal-content"><h3>📝 智能出题系统</h3><textarea id="docInput" style="width:100%;height:150px;"></textarea><input type="file" id="pdfUpload" accept=".pdf"><button class="btn" id="generateBtn">生成场景</button><div id="generatedPreview" style="margin-top:10px;"></div><button class="btn" id="saveSceneBtn" style="display:none;">确认入库</button></div></div>
+</div>
+
+<script>
+// ================= 唯一一次声明 supabase =================
+const SUPABASE_URL = 'https://rwwnbdshagbfnxgxupsu.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ3d25iZHNoYWdiZm54Z3h1cHN1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA3MTI2NzcsImV4cCI6MjA5NjI4ODY3N30.AzicXWpgk1iecBgj0WZEmbhYrPRw1u079awLQReqevU';
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const ADMIN_EMAIL = '1847048617@qq.com';
+let isAdmin = false;
+let player = null;
+let currentRoom = null;
+
+// ================= 游戏数据定义 =================
+const allEquipments = [
+  { id:1, name:'执法记录仪', icon:'📹', unlockLevel:1, desc:'全程记录执法过程' },
+  { id:2, name:'手铐', icon:'🔗', unlockLevel:3, desc:'控制嫌疑人' },
+  { id:3, name:'催泪喷雾', icon:'💨', unlockLevel:5, desc:'非致命驱散' },
+  { id:4, name:'对讲机', icon:'📻', unlockLevel:8, desc:'与指挥中心联络' },
+  { id:5, name:'警棍', icon:'🪯', unlockLevel:10, desc:'近身防卫' },
+  { id:6, name:'急救包', icon:'🩹', unlockLevel:4, desc:'现场急救' },
+  { id:7, name:'强光手电', icon:'🔦', unlockLevel:2, desc:'夜间照明' },
+  { id:8, name:'防割手套', icon:'🧤', unlockLevel:6, desc:'搜索防割伤' },
+  { id:9, name:'警绳', icon:'🪢', unlockLevel:7, desc:'约束带' },
+  { id:10, name:'防暴盾牌', icon:'🛡️', unlockLevel:12, desc:'群体事件防护' },
+  { id:11, name:'执法终端', icon:'📱', unlockLevel:9, desc:'现场查询信息' },
+  { id:12, name:'防弹衣', icon:'🦺', unlockLevel:15, desc:'高危场景防护' }
+];
+const shopItems = [
+  { id:'energy', name:'精力补充剂', desc:'恢复1点精力', price:100 },
+  { id:'permit_temp', name:'临时权限卡', desc:'临时获得一项高级权限', price:300 },
+  { id:'double_exp', name:'双倍经验卡', desc:'下一次训练经验翻倍', price:200 }
+];
+const titleDefs = [
+  { minLevel:1, name:'见习警员' },{ minLevel:3, name:'三级警员' },{ minLevel:5, name:'二级警员' },
+  { minLevel:8, name:'一级警员' },{ minLevel:12, name:'三级警司' },{ minLevel:18, name:'二级警司' }
+];
+const achievementDefs = [
+  { id:'first_train', name:'初出茅庐', desc:'完成第一次训练', check:(p)=>p.totalTrainings>=1, rewardCoins:50 },
+  { id:'ten_trains', name:'训练能手', desc:'累计完成10次训练', check:(p)=>p.totalTrainings>=10, rewardCoins:200 },
+  { id:'level5', name:'小有成就', desc:'达到5级', check:(p)=>p.level>=5, rewardCoins:100 },
+  { id:'level10', name:'精英警员', desc:'达到10级', check:(p)=>p.level>=10, rewardCoins:300 },
+  { id:'all_equip_lv5', name:'装备爱好者', desc:'解锁5件装备', check:(p)=>Object.keys(p.unlockedEquip||{}).length>=5, rewardCoins:150 },
+  { id:'rich', name:'积少成多', desc:'金币超过500', check:(p)=>p.coins>=500, rewardCoins:50 },
+  { id:'energy_saver', name:'精力管理', desc:'精力从未低于5', check:(p)=>p.energyNeverLow!==false, rewardCoins:80 },
+  { id:'team_player', name:'团队协作', desc:'加入过组队房间', check:(p)=>p.hasJoinedTeam, rewardCoins:100 },
+  { id:'perfect_tone', name:'语气平稳', desc:'累计5次语气平稳', check:(p)=>(p.calmToneCount||0)>=5, rewardCoins:150 },
+  { id:'speedy', name:'快速反应', desc:'单次选择快', check:(p)=>p.quickResponse, rewardCoins:120 }
+];
+
+const sceneData = {
+  id:'delay', name:'航班延误纠纷', desc:'旅客围堵登机口', icon:'✈️', lawRef:'《治安管理处罚法》第23条',
+  easy: {
+    start:'e1',
+    nodes:{
+      e1:{ ai:"你们管不管？飞机到底什么时候飞？", choices:[
+        { text:"理解您的心情，我马上了解情况", next:"e2", weights:{情绪管理:4,沟通表达:3} },
+        { text:"这我管不了，找航空公司去", next:"end_bad" }
+      ]},
+      e2:{ ai:"我等了5个小时，小孩饿得直哭！", choices:[
+        { text:"我帮您联系服务台安排餐食和休息室", next:"end_good", weights:{流程规范:5} }
+      ]},
+      end_good:{ ai:"好吧，那我再等等。", isEnd:true, ending:'good' },
+      end_bad:{ ai:"我要投诉你！", isEnd:true, ending:'bad' }
+    }
+  }
+};
+
+// ================= 玩家档案管理 =================
+async function loadPlayerProfile(userId, email) {
+  const { data, error } = await supabase.from('player_profiles').select('*').eq('user_id', userId).single();
+  if (error || !data) {
+    const nicknameInput = document.getElementById('nicknameInput');
+    const nickname = nicknameInput ? nicknameInput.value.trim() : email.split('@')[0];
+    const isAdminUser = (email === ADMIN_EMAIL);
+    const finalNickname = isAdminUser ? '陈家乐' : (nickname || email.split('@')[0]);
+    const newProfile = {
+      user_id: userId,
+      email: email,
+      nickname: finalNickname,
+      level: isAdminUser ? 99 : 1,
+      exp: isAdminUser ? 99999 : 0,
+      coins: isAdminUser ? 999999 : 200,
+      energy: 10,
+      equipCarried: [],
+      unlockedEquip: isAdminUser ? Object.fromEntries(allEquipments.map(e => [e.id, true])) : {1:true},
+      totalTrainings: 0,
+      energyNeverLow: true,
+      hasJoinedTeam: false,
+      calmToneCount: 0,
+      quickResponse: false,
+      items: isAdminUser ? { energy:99, permit_temp:99, double_exp:99 } : {},
+      history: [],
+      lastEnergyDate: new Date().toDateString()
+    };
+    await supabase.from('player_profiles').insert(newProfile);
+    player = newProfile;
+  } else {
+    player = data;
+    if (email === ADMIN_EMAIL && player.level < 99) {
+      player.level = 99; player.exp = 99999; player.coins = 999999;
+      player.unlockedEquip = Object.fromEntries(allEquipments.map(e => [e.id, true]));
+      player.items = { energy:99, permit_temp:99, double_exp:99 };
+      await savePlayerProfile();
+    }
+  }
+}
+
+async function savePlayerProfile() {
+  if (!player?.user_id) return;
+  await supabase.from('player_profiles').upsert({
+    user_id: player.user_id,
+    email: player.email,
+    nickname: player.nickname,
+    level: player.level,
+    exp: player.exp,
+    coins: player.coins,
+    energy: player.energy,
+    equipCarried: player.equipCarried || [],
+    unlockedEquip: player.unlockedEquip || {1:true},
+    totalTrainings: player.totalTrainings || 0,
+    energyNeverLow: player.energyNeverLow,
+    hasJoinedTeam: player.hasJoinedTeam,
+    calmToneCount: player.calmToneCount || 0,
+    quickResponse: player.quickResponse || false,
+    items: player.items || {},
+    history: player.history || [],
+    lastEnergyDate: player.lastEnergyDate
+  }, { onConflict: 'user_id' });
+}
+
+// ================= 登录注册 =================
+document.getElementById('registerBtn').onclick = async () => {
+  const nickname = document.getElementById('nicknameInput').value.trim();
+  const email = document.getElementById('emailInput').value.trim();
+  const pwd = document.getElementById('passwordInput').value;
+  if (!nickname) return alert('请输入昵称');
+  if (!email) return alert('请输入邮箱');
+  if (pwd.length < 6) return alert('密码至少6位');
+  const { data, error } = await supabase.auth.signUp({ email, password: pwd });
+  if (error) return document.getElementById('authError').textContent = '注册失败：' + error.message;
+  if (data.user) {
+    await loadPlayerProfile(data.user.id, email);
+    alert('注册成功！已自动登录');
+    onLoginSuccess(email);
+  } else {
+    alert('注册成功，请登录（如已关闭邮箱验证可直接登录）');
+  }
+};
+
+document.getElementById('loginBtn').onclick = async () => {
+  const email = document.getElementById('emailInput').value.trim();
+  const pwd = document.getElementById('passwordInput').value;
+  if (!email) return alert('请输入邮箱');
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password: pwd });
+  if (error) return document.getElementById('authError').textContent = '登录失败：' + error.message;
+  await loadPlayerProfile(data.user.id, email);
+  onLoginSuccess(email);
+};
+
+function onLoginSuccess(email) {
+  isAdmin = (email === ADMIN_EMAIL);
+  document.getElementById('adminBtn').style.display = isAdmin ? 'block' : 'none';
+  document.getElementById('adminCoverBtn').style.display = isAdmin ? 'inline-block' : 'none';
+  showCover();
+}
+
+document.getElementById('logoutBtn').onclick = async () => {
+  await supabase.auth.signOut();
+  player = null; isAdmin = false;
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById('authView').classList.add('active');
+  document.getElementById('adminBtn').style.display = 'none';
+  document.getElementById('adminCoverBtn').style.display = 'none';
+};
+
+// 自动登录（仅在非file协议下有效）
+(async () => {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+      await loadPlayerProfile(session.user.id, session.user.email);
+      onLoginSuccess(session.user.email);
+    }
+  } catch (e) {
+    console.warn('自动登录失败（可能因file协议）:', e);
+  }
+})();
+
+// ================= 界面更新 =================
+function checkEnergyReset() {
+  const today = new Date().toDateString();
+  if (player.lastEnergyDate !== today) {
+    player.energy = 10;
+    player.lastEnergyDate = today;
+    savePlayerProfile();
+  }
+}
+
+function showCover() {
+  document.getElementById('authView').classList.remove('active');
+  document.getElementById('coverView').classList.add('active');
+  checkEnergyReset();
+  renderSceneGrid();
+  updateCoverUI();
+}
+
+function updateCoverUI() {
+  if (!player) return;
+  document.getElementById('displayNickname').textContent = player.nickname;
+  document.getElementById('displayLevel').textContent = player.level;
+  document.getElementById('displayCoins').textContent = player.coins;
+  document.getElementById('displayEnergy').textContent = player.energy;
+  let title = '见习警员';
+  for (let t of titleDefs) if (player.level >= t.minLevel) title = t.name;
+  document.getElementById('displayTitle').textContent = title;
+  const achieved = achievementDefs.filter(a => a.check(player)).length;
+  document.getElementById('displayAchieve').textContent = achieved;
+}
+
+function renderSceneGrid() {
+  document.getElementById('sceneGrid').innerHTML = `<div class="scene-card" onclick="startScene('delay')">
+      <span>✈️</span> 航班延误纠纷 (初级)
+    </div>`;
+}
+
+// ================= 装备/商店/组队 =================
+document.getElementById('equipMenuBtn').onclick = () => {
+  const max = Math.floor(player.level/5)+3;
+  document.getElementById('maxCarry').textContent = max;
+  const list = document.getElementById('equipList');
+  list.innerHTML = '';
+  allEquipments.forEach(eq => {
+    if (player.unlockedEquip[eq.id]) {
+      const checked = (player.equipCarried||[]).includes(eq.id) ? 'checked' : '';
+      const div = document.createElement('div');
+      div.className = 'equip-item';
+      div.innerHTML = `<label><input type="checkbox" value="${eq.id}" ${checked}> ${eq.icon} ${eq.name} - ${eq.desc}</label>`;
+      list.appendChild(div);
+    }
+  });
+  document.getElementById('equipModal').style.display = 'flex';
+};
+document.getElementById('confirmEquip').onclick = () => {
+  const checks = [...document.querySelectorAll('#equipList input:checked')].map(cb => +cb.value);
+  const max = +document.getElementById('maxCarry').textContent;
+  if (checks.length > max) return alert(`最多携带${max}件`);
+  player.equipCarried = checks;
+  savePlayerProfile();
+  document.getElementById('equipModal').style.display = 'none';
+  alert('装备已更新');
+};
+
+document.getElementById('shopBtn').onclick = () => {
+  const list = document.getElementById('shopList');
+  list.innerHTML = '';
+  shopItems.forEach(item => {
+    const btn = document.createElement('button');
+    btn.className = 'btn'; btn.style.display='block'; btn.style.width='100%';
+    btn.textContent = `${item.name} (${item.price}💰) - ${item.desc}`;
+    btn.onclick = () => {
+      if (player.coins < item.price) return alert('金币不足');
+      player.coins -= item.price;
+      player.items[item.id] = (player.items[item.id]||0) + 1;
+      savePlayerProfile();
+      updateCoverUI();
+      alert(`购买成功！获得 ${item.name} ×1`);
+    };
+    list.appendChild(btn);
+  });
+  document.getElementById('shopModal').style.display = 'flex';
+};
+
+document.getElementById('teamBtn').onclick = () => document.getElementById('teamModal').style.display = 'flex';
+document.getElementById('createRoomBtn').onclick = () => {
+  const code = Math.random().toString(36).substr(2,6).toUpperCase();
+  const room = { code, host:player.nickname, members:[player.nickname] };
+  localStorage.setItem('room_'+code, JSON.stringify(room));
+  currentRoom = room;
+  document.getElementById('roomCodeDisplay').textContent = '房间码：' + code;
+  updateRoomMembers();
+};
+document.getElementById('joinRoomBtn').onclick = () => {
+  const code = document.getElementById('joinRoomInput').value.trim().toUpperCase();
+  const roomData = JSON.parse(localStorage.getItem('room_'+code) || 'null');
+  if (!roomData) return alert('房间不存在');
+  if (!roomData.members.includes(player.nickname)) {
+    roomData.members.push(player.nickname);
+    localStorage.setItem('room_'+code, JSON.stringify(roomData));
+    player.hasJoinedTeam = true;
+    savePlayerProfile();
+    alert('加入成功！');
+    currentRoom = roomData;
+    updateRoomMembers();
+  }
+};
+function updateRoomMembers() {
+  const div = document.getElementById('roomMembers');
+  if (currentRoom) div.innerHTML = '<p>当前成员：</p>' + currentRoom.members.map(m => `<p>👤 ${m}</p>`).join('');
+}
+
+// ================= 训练场景 =================
+let currentScene = null, currentNode = 'e1';
+let trainingActive = false, scores = [], doubleExpActive = false, toneMetrics = [];
+
+function startScene(id) {
+  if (player.energy < 1) return alert('精力不足！');
+  player.energy--;
+  if (player.energy < 5) player.energyNeverLow = false;
+  if (player.items.double_exp > 0) { doubleExpActive = true; player.items.double_exp--; }
+  else { doubleExpActive = false; }
+  player.totalTrainings++;
+  savePlayerProfile();
+  currentScene = sceneData;
+  currentNode = 'e1';
+  scores = []; toneMetrics = [];
+  trainingActive = true;
+  document.getElementById('coverView').classList.remove('active');
+  document.getElementById('trainView').classList.add('active');
+  document.getElementById('chatArea').innerHTML = '';
+  document.getElementById('scorePanel').classList.remove('show');
+  processNode(currentNode);
+}
+
+function processNode(id) {
+  const node = currentScene.easy.nodes[id];
+  if (!node) return;
+  appendMessage('ai', node.ai);
+  if (node.isEnd) { finishTraining(node.ending); return; }
+  if (node.choices) {
+    const div = document.createElement('div');
+    div.style.display = 'flex'; div.style.flexWrap = 'wrap'; div.style.gap = '5px';
+    node.choices.forEach(c => {
+      const btn = document.createElement('button');
+      btn.className = 'btn'; btn.textContent = c.text;
+      btn.onclick = () => {
+        appendMessage('user', c.text);
+        scores.push({ dims: c.weights || {} });
+        processNode(c.next);
+      };
+      div.appendChild(btn);
+    });
+    document.getElementById('chatArea').appendChild(div);
+  }
+}
+
+function appendMessage(type, text) {
+  const div = document.createElement('div');
+  div.className = `message ${type}`;
+  div.textContent = text;
+  document.getElementById('chatArea').appendChild(div);
+  document.getElementById('chatArea').scrollTop = document.getElementById('chatArea').scrollHeight;
+}
+
+async function finishTraining(ending) {
+  trainingActive = false;
+  const baseScore = ending === 'good' ? 80 : 40;
+  let expMul = doubleExpActive ? 2 : 1;
+  const expGain = Math.floor(baseScore * 0.5 * expMul);
+  const coinsGain = Math.floor(baseScore / 10);
+  player.exp += expGain;
+  player.coins += coinsGain;
+  while (player.exp >= player.level * 100 && player.level < 99) {
+    player.exp -= player.level * 100;
+    player.level++;
+  }
+  player.history.push({
+    scene:'航班延误', ending, score:baseScore, expGain, coinsGain,
+    time: new Date().toLocaleString()
+  });
+  await supabase.from('training_reports').insert({
+    user_id: player.user_id,
+    officer_name: player.nickname,
+    category: 'dispatch',
+    scene_id: 'delay',
+    total_score: baseScore,
+    ending: ending,
+    difficulty: 'easy',
+    tone_analyzed: toneMetrics.length > 0
+  });
+  savePlayerProfile();
+  checkAchievements();
+  updateCoverUI();
+  const panel = document.getElementById('scorePanel');
+  panel.innerHTML = `<h3>${ending==='good'?'✅ 成功':'❌ 失败'}</h3>
+    <p>得分：${baseScore} | 经验+${expGain} | 金币+${coinsGain}${doubleExpActive?' (双倍)':''}</p>
+    <button class="btn" onclick="backToMenu()">返回大厅</button>`;
+  panel.classList.add('show');
+}
+
+function backToMenu() {
+  document.getElementById('trainView').classList.remove('active');
+  document.getElementById('coverView').classList.add('active');
+  document.getElementById('scorePanel').classList.remove('show');
+  updateCoverUI();
+}
+
+document.getElementById('backBtn').onclick = backToMenu;
+document.getElementById('sendBtn').onclick = () => {
+  const input = document.getElementById('userInput');
+  if (input.value.trim()) {
+    appendMessage('user', input.value.trim());
+    input.value = '';
+    processNode('end_good');
+  }
+};
+
+// ================= 语音与语气 =================
+document.getElementById('voiceBtn').onclick = () => {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return alert('语音识别仅支持Chrome/Edge');
+  startAudioListening();
+  const rec = new SR(); rec.lang = 'zh-CN';
+  rec.onresult = e => {
+    document.getElementById('userInput').value = e.results[0][0].transcript;
+    const tone = analyzeTone();
+    stopAudioListening();
+    if (tone.level !== 'neutral') appendMessage('system', `🎙️ 语气：${tone.label}`);
+    player.calmToneCount += (tone.level === 'calm' ? 1 : 0);
+    savePlayerProfile();
+    sendMessage();
+  };
+  rec.start();
+};
+
+let audioContext, audioAnalyser, audioStream, isRecording = false;
+async function startAudioListening() {
+  if (isRecording) return;
+  try {
+    audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const source = audioContext.createMediaStreamSource(audioStream);
+    audioAnalyser = audioContext.createAnalyser();
+    audioAnalyser.fftSize = 256;
+    source.connect(audioAnalyser);
+    toneMetrics = [];
+    isRecording = true;
+    const collect = () => {
+      if (!isRecording || !audioAnalyser) return;
+      const data = new Uint8Array(audioAnalyser.frequencyBinCount);
+      audioAnalyser.getByteFrequencyData(data);
+      toneMetrics.push(Math.sqrt(data.reduce((s,v)=>s+v*v,0)/data.length)/255);
+      if (toneMetrics.length > 200) toneMetrics.shift();
+      requestAnimationFrame(collect);
+    };
+    collect();
+  } catch (e) { console.log('麦克风不可用', e); }
+}
+
+function stopAudioListening() {
+  isRecording = false;
+  if (audioStream) { audioStream.getTracks().forEach(t=>t.stop()); audioStream = null; }
+  if (audioContext) { audioContext.close(); audioContext = null; }
+  audioAnalyser = null;
+}
+
+function analyzeTone() {
+  if (!toneMetrics.length) return { level:'neutral', label:'正常', penalty:0 };
+  const avg = toneMetrics.reduce((a,b)=>a+b,0)/toneMetrics.length;
+  const variance = toneMetrics.reduce((s,v)=>s+(v-avg)**2,0)/toneMetrics.length;
+  const std = Math.sqrt(variance);
+  if (avg > 0.6 && std > 0.25) return { level:'harsh', label:'语气过重生硬', penalty:-3 };
+  if (avg > 0.5 && std > 0.2) return { level:'harsh', label:'语气偏激动', penalty:-2 };
+  if (avg < 0.25 && std < 0.1) return { level:'calm', label:'语气平稳专业', penalty:2 };
+  return { level:'neutral', label:'语气正常', penalty:0 };
+}
+
+// ================= 成就检测 =================
+function checkAchievements() {
+  achievementDefs.forEach(a => {
+    if (a.check(player) && !player['ach_'+a.id]) {
+      player['ach_'+a.id] = true;
+      player.coins += a.rewardCoins;
+      savePlayerProfile();
+      alert(`🏆 成就解锁：${a.name}！奖励 ${a.rewardCoins} 金币`);
+    }
+  });
+}
+
+// ================= 历史战绩 =================
+document.getElementById('historyBtn').onclick = () => {
+  const list = document.getElementById('historyList');
+  if (player.history.length === 0) {
+    list.innerHTML = '<p>暂无训练记录</p>';
+  } else {
+    list.innerHTML = player.history.map(h =>
+      `<p>📌 ${h.scene} | ${h.ending==='good'?'✅':'❌'} | +${h.expGain}EXP +${h.coinsGain}💰<br><small>${h.time}</small></p>`
+    ).join('<hr>');
+  }
+  document.getElementById('historyModal').style.display = 'flex';
+};
+
+// ================= 管理面板 =================
+document.getElementById('adminBtn').onclick = () => document.getElementById('adminModal').style.display = 'flex';
+document.getElementById('adminCoverBtn').onclick = () => document.getElementById('adminModal').style.display = 'flex';
+
+document.getElementById('generateBtn').onclick = async () => {
+  const text = document.getElementById('docInput').value.trim();
+  if (!text) return alert('请输入法律文本');
+  alert('AI 生成功能需要接入 Gemini API，请配置 API Key');
+};
+
+document.getElementById('pdfUpload').onchange = async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const script = document.createElement('script');
+  script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+  script.onload = async () => {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+    let text = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      text += content.items.map(item => item.str).join(' ') + '\n';
+    }
+    document.getElementById('docInput').value = text;
+  };
+  document.head.appendChild(script);
+};
+
+document.querySelectorAll('.modal').forEach(m => {
+  m.addEventListener('click', function(e) { if (e.target === this) this.style.display = 'none'; });
+});
+
+// PWA
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>
